@@ -5,17 +5,30 @@ import express, { Application, NextFunction, Request, Response } from "express";
 dotenv.config(); // this line should be executed before importing config
 import "./config/config";
 import { MongoClient, ServerApiVersion } from "mongodb";
-import { Setup } from "@/setup";
-import { CryptoSchema } from "@/crypto/data/schema";
-import { connection } from "@/crypto/data/connection";
-import { router as CryptoManagementRouter } from "@/crypto/router";
+import { CryptoSchema } from "./src/crypto/data/schema";
+import { connection } from "./src/crypto/data/connection";
+import { router as CryptoManagementRouter } from "./src/crypto/router";
+import { CryptoManagement } from "./src/crypto/business";
+import './src/exceptions/process';
+import http from "http";
+import { Server as SocketServer, Socket } from "socket.io";
+import WebSocket from 'ws';
+import { CryptoPersistor } from "./src/crypto/data/persistor";
 
 const app: Application = express();
 const port: number = parseInt(process.env.PORT as string, 10) || 3000;
 app.use(express.json());
 app.use(cors<cors.CorsRequest>());
 app.use(express.urlencoded({ extended: true }));
-
+const server = http.createServer(app);
+const io = new SocketServer(server, {
+    cors: {
+        origin: "*", // Allow all origins for Socket.IO connections
+        methods: ["GET", "POST"],
+        allowedHeaders: ["my-custom-header"],
+        credentials: true
+    }
+});
 app.use(function (req: Request, res: Response, next: NextFunction) {
     res.header("Access-Control-Allow-Origin", "*");
     next();
@@ -27,7 +40,7 @@ const requestLogger = (
     request: Request,
     response: Response,
     next: NextFunction) => {
-    console.log(`${request.method} url:: ${request.baseUrl}${request.url}`);
+    console.log(`${request.method} url:: ${request.baseUrl}${request.url}`)
     next()
 }
 app.use(requestLogger);
@@ -35,7 +48,7 @@ app.use(requestLogger);
 
 // Error handling Middleware function for logging the error message
 const errorLogger = (error: Error, request: Request, response: Response, next: NextFunction) => {
-    console.log(`error ${error.message}`)
+    console.log("error ${error.message}")
     next(error) // calling next middleware
 }
 app.use(errorLogger)
@@ -43,7 +56,7 @@ app.use(errorLogger)
 //Registering Schemas
 connection.model('crypto', CryptoSchema);
 
-app.use('/v1/', CryptoManagementRouter)
+app.use('/', CryptoManagementRouter)
 
 app.get(
     "/",
@@ -60,11 +73,12 @@ const invalidPathHandler = (request: Request, response: Response, next: NextFunc
 app.use(invalidPathHandler)
 
 try {
-    app.listen(port, () => {
-        console.log(`2.App running on port http://localhost:${port}/`);
+    server.listen(port, async () => {
+        console.log(`2.App running on port http://localhost:${port}/`)
+        await run().catch(console.dir);
     });
 } catch (error) {
-    console.log(`Error occurred: ${error.message}`)
+    console.log("Error occurred: ${error.message}")
 }
 
 const uri = `${process.env.CRYPTO_DATABASE_PROTOCOL}://${process.env.CRYPTO_DATABASE_HOST}:${process.env.CRYPTO_DATABASE_PORT}/`
@@ -84,13 +98,36 @@ async function run() {
         await client.connect();
         // Send a ping to confirm a successful connection
         await client.db("admin").command({ ping: 1 });
-        console.log("3.Successfully connected to MongoDB!");
-        await new Setup().saveInitialCryptos()
+        console.log("3.Successfully connected to MongoDB!")
+        await new CryptoManagement().saveInitialCryptos()
     } finally {
         // Ensures that the client will close when you finish/error
         await client.close();
     }
 }
-run().catch(console.dir);
 
+io.on("connection", async (socket: Socket) => {
+    console.log(`Socket connected: ${socket.id}`);
+    socket.emit('welcome', { message: 'Welcome!', id: socket.id });
+    // console.log(io.sockets.sockets)
+    if (io.sockets.sockets.size === 1) {
+        // First connection, start watching collection
+        new CryptoPersistor().watchCollection((data) => {
+            // Handle subscription to cryptocurrency updates
+            // console.log(data)
+            socket.emit("update", data);
+        })
+    }
+    socket.on("subscribe", async (cryptoId: string) => {
+        console.log(`Client-${socket.id} subscribed to updates for: ${cryptoId}`);
+    });
 
+    // Handle disconnection
+    socket.on("disconnect", () => {
+        console.log(`Socket disconnected: ${socket.id}`);
+        console.log(io.sockets.sockets.size)
+        // if (io.sockets.sockets.size === 0) {
+        //     new CryptoPersistor().stopWatchingCollection()
+        // }
+    });
+});

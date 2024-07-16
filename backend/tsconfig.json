@@ -10,7 +10,7 @@
     "sourceMap": true,
     "outDir": "dist",
     "resolveJsonModule": true,
-    "baseUrl": ".",
+    "baseUrl": "./",    
     "paths": {
       "*": [
         "node_modules/*",
