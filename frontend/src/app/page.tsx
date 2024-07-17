@@ -1,37 +1,29 @@
 'use client';
-import { useEffect, useState } from 'react';
-import Image from 'next/image';
-import axios from 'axios';
 import { Autocomplete, TextField } from '@mui/material';
+import axios from 'axios';
+import moment from 'moment';
+import Image from 'next/image';
+import { useEffect, useState } from 'react';
 import io from 'socket.io-client'; // Import WebSocket client
 import styles from './page.module.css';
-
-// Define interface for cryptocurrency data
-interface Crypto {
-  symbol: string;
-  name: string;
-  currentPrice: number;
-  image: string;
-  priceList: any
-}
+import { Crypto, saveCrypto } from './store/cryptoSlice';
+import { useAppDispatch, useAppSelector } from './store/hook';
+import { RootState } from './store/store';
 
 export default function Home() {
-  // State hooks for managing cryptocurrency data and selection
+  //Used redux to store live prices data
+  const liveCryptos = useAppSelector((state: RootState) => state.crypto.cryptos)
+  const dispatch = useAppDispatch();
   const [cryptos, setCryptos] = useState<Crypto[]>([]);
   const [selectedCrypto, setSelectedCrypto] = useState<Crypto | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [update, setUpdate] = useState(null)
+
   useEffect(() => {
     async function fetchCryptos() {
       try {
         const response = await axios.get('http://localhost:3000/cryptos');
-        setCryptos(response.data.data); // Assuming response.data.data is an array of Crypto objects
-        setLoading(false);
+        setCryptos(response.data.data);
       } catch (error) {
         console.error('Error fetching cryptos:', error);
-        setError('Failed to fetch cryptocurrency data.');
-        setLoading(false);
       }
     }
 
@@ -41,22 +33,16 @@ export default function Home() {
   useEffect(() => {
     // Establish WebSocket connection when selectedCrypto changes
     if (selectedCrypto) {
-      const socket = io('ws://localhost:3000'); // Replace with your backend URL
+      const socket = io('ws://localhost:3000');
       socket.on('welcome', function (data) {
         console.log(data)
       });
 
       socket.emit('subscribe', selectedCrypto.symbol); // Subscribe to updates for selected cryptocurrency
-      socket.on('update', (update: any) => {
-        // Handle incoming update from server
-        console.log('Received update:', update);
-        // setUpdate(update)
-        // // Update cryptos array with updated cryptocurrency data
-        // setCryptos((prevCryptos) =>
-        //   prevCryptos.map((crypto) =>
-        //     crypto.symbol === selectedCrypto.symbol ? { ...crypto, priceList: update.priceList } : crypto
-        //   )
-        // );
+      socket.on('update', (data: any) => {
+        //TODO: selectedCrypto only should be returned from the data, for time constraints now all the crypto data will come
+        console.log('Received data:', data);
+        dispatch(saveCrypto(data))
       });
 
       return () => {
@@ -65,26 +51,14 @@ export default function Home() {
     }
   }, [selectedCrypto]);
 
-  // Handler for when a cryptocurrency is selected from Autocomplete
   const handleCryptoChange = (event: React.ChangeEvent<{}>, value: Crypto | null) => {
-    setSelectedCrypto(value); // Update selectedCrypto state
+    setSelectedCrypto(value);
   };
 
-  // Render loading indicator if data is still loading
-  if (loading) {
-    return <div>Loading...</div>;
-  }
 
-  // Render error message if there was an error fetching data
-  if (error) {
-    return <div>Error: {error}</div>;
-  }
-
-  // Render the main content once data is loaded and no errors
   return (
     <main className={styles.main}>
-      {/* Select a cryptocurrency using Autocomplete */}
-      <label htmlFor="cryptoPicker">Select a Cryptocurrency:</label>
+      <label htmlFor="cryptoPicker">Select a Cryptocurrency to display the data:</label>
       <Autocomplete
         disablePortal
         id="cryptoPicker"
@@ -104,7 +78,7 @@ export default function Home() {
             <p>Symbol: {selectedCrypto.symbol}</p>
             <p>Current Price: ${selectedCrypto?.currentPrice}</p>
             <Image
-              src={selectedCrypto.image} // Ensure selectedCrypto.image is a valid URL
+              src={selectedCrypto.image}
               alt={`${selectedCrypto.name} Logo`}
               className={styles.cryptoLogo}
               width={30}
@@ -113,8 +87,9 @@ export default function Home() {
           </div>
         </div>
       )}
-
-      {/* Display a table of all cryptocurrencies */}
+      {liveCryptos?.length > 0 && (
+        <p>Currently displaying all the coins and scroll down to see live 20 real time prices in table for each coin</p>
+      )}
       <div className={styles.center}>
         <table className={styles.table}>
           <thead>
@@ -123,34 +98,35 @@ export default function Home() {
               <th>Name</th>
               <th>Current Price</th>
               <th>Logo</th>
-              <th>PriceList</th>
+              <th>Live PriceList</th>
             </tr>
           </thead>
           <tbody>
-            {cryptos.filter((crypto) => crypto.symbol == selectedCrypto?.symbol).map((crypto) => (
+            {liveCryptos.map((crypto) => (
               <tr key={crypto.symbol}>
                 <td>{crypto.symbol}</td>
                 <td>{crypto.name}</td>
                 <td>${crypto.currentPrice}</td>
                 <td>
                   <Image
-                    src={crypto.image} // Ensure crypto.image is a valid URL
+                    src={crypto.image}
                     alt={`${crypto.name} Logo`}
                     className={styles.cryptoLogo}
                     width={30}
                     height={30}
                   />
                 </td>
-                {/* <td>
-                  {crypto.priceList.map((el: any) => {
+                <td>
+                  {crypto.priceList.map((el: any, ind) => {
                     return (
                       <tr>
-                        <td>{JSON.stringify(el.price)}</td>
-                        <td>{JSON.stringify(el.time)}</td>
+                        <td>{ind + 1}</td>
+                        <td>{el.price}</td>
+                        <td>{moment(el.time).format('MMMM Do YYYY, h:mm:ss a')}</td>
                       </tr>
                     )
                   })}
-                </td> */}
+                </td>
               </tr>
             ))}
           </tbody>

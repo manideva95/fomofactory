@@ -111,15 +111,18 @@ io.on("connection", async (socket: Socket) => {
     socket.emit('welcome', { message: 'Welcome!', id: socket.id });
     // console.log(io.sockets.sockets)
     if (io.sockets.sockets.size === 1) {
-        // First connection, start watching collection
         new CryptoPersistor().watchCollection((data) => {
             // Handle subscription to cryptocurrency updates
-            // console.log(data)
-            socket.emit("update", data);
+            if (data) {
+                //TODO: here all the changes in db are sent to client, but only need to send the particular crytpo the client asked for, 
+                //For time constraints im sending everything to client
+                socket.emit("update", data);
+            }
         })
     }
     socket.on("subscribe", async (cryptoId: string) => {
         console.log(`Client-${socket.id} subscribed to updates for: ${cryptoId}`);
+        //TODO: need to send only the crypto id the client asked for 
     });
 
     // Handle disconnection
